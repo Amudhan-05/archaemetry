@@ -51,8 +51,10 @@ station.
 
 | Script | Stage | What it does |
 |---|---|---|
+| `run.py` | all | **One-command orchestrator.** Reads `sherd.yaml`, drives Stages 2→3→4, aggregates the confidence reports, and prints a **GO / REVIEW** verdict (flags fragments that should go to the manual/GigaMesh route). |
 | `clean_mesh.py` | 2 | Keep the largest connected component (drops turntable + noise islands, deterministically), optional capped hole-fill. Replaces the manual MeshLab crop. Emits `*_report.json`. |
-| `extract_profile.py` | 3 | Auto-fit the symmetry axis (PCA seed → circle-centre refinement, robust to handles/broken edges), project to cylindrical coords, emit a metric SVG profile + validation overlay + confidence report. Replaces GigaMesh's profile step for plain ware. |
+| `extract_profile.py` | 3 | Auto-fit the symmetry axis (`pca`, or `rim_arc` for rim sherds with span+planarity gates and graceful fallback), project to cylindrical coords, emit a metric SVG profile + validation overlay + confidence report. Replaces GigaMesh's profile step for plain ware. |
+| `publish_svg.py` | 4 | Add a metric scale bar, caption, and CVA line weight to the profile SVG (portable SVG editing, no GUI dependency). |
 | `tools/diagnose_components.py` | — | Inspect the connected-component structure of a raw SfM mesh (sherd vs turntable vs noise). |
 | `tools/render_mesh.py` | — | Quick PNG render of a mesh for visual checks. |
 | `tools/crop_wedge.py` | — | Crop a complete vessel to an angular wedge to *simulate* a rim/body sherd with ground truth. |
@@ -64,12 +66,15 @@ station.
 python -m venv .venv && .venv/Scripts/activate       # Windows; use bin/activate on *nix
 pip install -r requirements.txt
 
-# Stage 2 — cleanup (zero manual steps)
-python clean_mesh.py  in_mesh.obj  out_clean.obj  --report clean_report.json
+# Whole lane in one command (mesh -> cleaned -> profile -> CVA drawing + verdict)
+python run.py --config config/sherd.example.yaml --input in_mesh.obj --outdir out/
+# -> out/clean.obj, out/profile/profile.svg, out/drawing.svg, out/run_report.json
+#    and a printed GO / REVIEW verdict
 
-# Stage 3 — profile extraction
-python extract_profile.py  out_clean.obj  out_dir/   --bands 300 --assume-mm-per-unit 1.0
-# -> out_dir/profile.svg, profile_overlay.png, profile_report.json
+# Or stage by stage:
+python clean_mesh.py       in_mesh.obj out/clean.obj --report out/clean_report.json
+python extract_profile.py  out/clean.obj out/profile/ --axis-method rim_arc --bands 300
+python publish_svg.py      out/profile/profile.svg out/profile/profile_report.json out/drawing.svg
 ```
 
 Paths with spaces are fragile through some of the CLI tools (GigaMesh in particular);
@@ -96,8 +101,10 @@ that lands, use the **bookend** deployment (keep GigaMesh for the profile) for f
 
 ## Not yet built
 
-- Stage 1 wrapper (COLMAP/Meshroom batch + per-image masking + scale from ArUco).
-- Stage 4 (Inkscape CLI: line weights, scale bar, hatching, CVA template).
-- `rim_arc` / `inner_surface` axis methods in `extract_profile.py`.
-- A single `run.py` that reads `sherd.yaml` and drives the whole lane.
-- Packaging (Dockerfile / notebook) for machine-independent execution.
+- **Stage 1 wrapper** (COLMAP/Meshroom batch + per-image masking + scale from ArUco) —
+  the lane currently starts from a mesh.
+- **`inner_surface` axis method** for body sherds (hardest case).
+- **Hatching** of the section cut in `publish_svg.py` (scale bar + line weight are done).
+- **Packaging** (Dockerfile / Colab notebook) for machine-independent execution — goal 5.
+- **Validation on real broken rim sherds** (current numbers are from cropped complete
+  vessels; open broken-sherd meshes are scarce, so this needs rig captures).
