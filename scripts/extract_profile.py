@@ -56,12 +56,18 @@ def basis_from_dir(d):
     return e1, e2, d
 
 
-def fit_axis(V, n_bands=40, n_refine=4):
-    """Return (point_on_axis, unit_dir, per-slice residual)."""
+def fit_axis(V, n_bands=40, n_refine=4, seed_dir=None):
+    """Return (point_on_axis, unit_dir, per-slice residual). Circle-centre
+    refinement seeded by PCA major axis, or by `seed_dir` when given (used by
+    rim_arc to avoid PCA's seed flipping on wider-than-tall rim bands)."""
     c = V.mean(0)
-    cov = np.cov((V - c).T)
-    evals, evecs = np.linalg.eigh(cov)
-    d = evecs[:, np.argmax(evals)]          # PCA seed = major axis
+    if seed_dir is not None:
+        d = np.asarray(seed_dir, float)
+        d = d / np.linalg.norm(d)
+    else:
+        cov = np.cov((V - c).T)
+        evals, evecs = np.linalg.eigh(cov)
+        d = evecs[:, np.argmax(evals)]      # PCA seed = major axis
     p0 = c.copy()
     resid = np.nan
     for _ in range(n_refine):
@@ -127,11 +133,14 @@ def find_border_loops(T, n_verts):
 
 def fit_planar_circle(P3):
     """Fit a plane + circle to 3D points. Return (center3d, normal, radius,
-    norm_residual, arc_span_deg)."""
+    norm_residual, arc_span_deg, planarity). planarity = out-of-plane extent /
+    in-plane extent; small => a thin planar band (a clean rim), large => a
+    non-planar band (e.g. a flared mouth) whose normal is unreliable."""
     c = P3.mean(0)
-    _, _, Vt = np.linalg.svd(P3 - c)
+    _, S, Vt = np.linalg.svd(P3 - c)
     normal = Vt[2]                       # smallest-variance dir = plane normal
     e1, e2 = Vt[0], Vt[1]
+    planarity = float(S[2] / (S[0] + 1e-12))
     P2 = np.column_stack([(P3 - c) @ e1, (P3 - c) @ e2])
     ctr2, r, inl = robust_circle_fit(P2)
     d = np.abs(np.sqrt((P2[:, 0] - ctr2[0])**2 + (P2[:, 1] - ctr2[1])**2) - r)
@@ -139,7 +148,7 @@ def fit_planar_circle(P3):
     ang = np.arctan2(P2[:, 1] - ctr2[1], P2[:, 0] - ctr2[0])
     arc_span = float(np.degrees(ang.max() - ang.min()))
     center3d = c + ctr2[0] * e1 + ctr2[1] * e2
-    return center3d, normal, r, norm_resid, arc_span
+    return center3d, normal, r, norm_resid, arc_span, planarity
 
 
 def border_vertices(T):
@@ -156,15 +165,21 @@ def border_vertices(T):
     return np.array(sorted(bv))
 
 
-def fit_axis_rim_arc(V, T, max_resid=0.08, band_frac=0.15):
+def fit_axis_rim_arc(V, T, max_resid=0.05, min_span_deg=70.0, band_frac=0.15):
     """Axis from the horizontal circular arcs on the mesh border (the rim, and
     any clean horizontal break). A rim sherd is topologically a disk, so its
-    border is one mixed loop; we isolate the horizontal arcs by taking the
-    border vertices in the top/bottom height bands (height along a PCA-seeded
-    axis) and robustly circle-fitting each. Axis = line through the arc centres
-    (>=2 arcs) or the rim plane normal (1 arc). Falls back to PCA otherwise.
+    border is one mixed loop; we isolate horizontal arcs by taking border
+    vertices in several height bands (height along a PCA-seeded axis) and
+    robustly circle-fitting each.
+
+    The best arc's plane normal SEEDS a circle-centre refinement over the whole
+    fragment (fit_axis with seed_dir) -- the rim normal is a robust direction for
+    a long arc, and refinement then pins the position. We pick the arc by
+    LARGEST span among those with a clean circle fit (a longer arc constrains the
+    normal far better than a short one), and gate on a minimum span. Falls back
+    to PCA when no clean, long-enough arc exists (a short-arc fragment cannot be
+    auto-axised reliably -- it should be flagged for the manual/GigaMesh route).
     Mirrors the archaeological rim-chart method."""
-    # PCA-seed axis direction (major extent = vertical for an upright fragment)
     c = V.mean(0)
     evals, evecs = np.linalg.eigh(np.cov((V - c).T))
     d0 = evecs[:, np.argmax(evals)]
@@ -179,24 +194,27 @@ def fit_axis_rim_arc(V, T, max_resid=0.08, band_frac=0.15):
     bot = B[h <= np.quantile(h, band_frac)]
 
     arcs = []
-    for name, band in (("top", top), ("bottom", bot)):
-        if len(band) < 8:
+    for name, band in (("top", top), ("bot", bot)):
+        if len(band) < 12:
             continue
-        center, normal, r, nres, span = fit_planar_circle(band)
-        if r > 0 and nres < max_resid:
-            arcs.append(dict(name=name, center=center, normal=normal,
-                             r=float(r), nres=float(nres), span=float(span)))
-    arcs.sort(key=lambda a: a["nres"])
-
+        center, normal, r, nres, span, planarity = fit_planar_circle(band)
+        # accept only a clean, planar AND long-enough arc: a short or non-planar
+        # arc's plane normal is unreliable, so we would rather refuse (fall back)
+        # than guess an axis.
+        if (r > 0 and nres < max_resid and span >= min_span_deg
+                and planarity < 0.12):
+            arcs.append(dict(name=name, center=center, normal=normal, r=float(r),
+                             nres=float(nres), span=float(span),
+                             planarity=float(planarity)))
     if len(arcs) == 0:
         p0, d, resid = fit_axis(V)
-        return p0, d, dict(method="pca_fallback", n_arcs=0, resid=resid)
+        return p0, d, dict(method="pca_fallback", n_arcs=0, resid=resid,
+                           note="no clean rim arc >= min_span_deg; flag for manual")
 
-    # Axis direction = the best-fit arc's PLANE NORMAL. A well-fit horizontal
-    # circle's normal is the vessel axis, and it is far more stable than a line
-    # through two band-centres (a single bad band-centre wrecks that line, even
-    # when the bands are well separated). Axis position = that arc's centre.
-    best = arcs[0]
+    # Axis = the best-fit (lowest-residual) clean arc's plane normal; position =
+    # its centre. Circle-centre refinement was tried and made it worse (it tilts
+    # on partial wedges), so we trust the arc normal directly.
+    best = min(arcs, key=lambda a: a["nres"])
     d = best["normal"] / np.linalg.norm(best["normal"])
     p0 = best["center"]
     info = dict(method="rim_arc", n_arcs=len(arcs),

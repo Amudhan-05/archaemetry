@@ -120,16 +120,21 @@ dist-to-true-axis)` over the fragment's own vertices.
 
 ![accuracy vs arc](validation/accuracy_vs_arc.png)
 
+`rim_arc` accepts a border arc only if it is a clean circle (`nres`), planar
+(`planarity < 0.12`, so a flared mouth is rejected) **and** at least
+`min_span_deg` (70°) long; otherwise it falls back to PCA and flags the fragment
+for the manual route — it refuses to guess an axis from too little arc.
+
 | Rim arc kept | `rim_arc` axis err | `rim_arc` radial RMS | PCA axis err |
 |---|---|---|---|
-| 45° | 1.9° | 4.4 mm | 5° |
-| 60° | 26.9° (unstable) | 3.2 mm | 5° |
+| 45° | *(fallback)* 1.9° | 4.4 mm | 5° |
+| 60° | *(fallback)* 4.9° | 3.8 mm | 5° |
 | **90°** | **0.35°** | **1.3 mm** | 6.6° |
 | 120° | 0.25° | 1.6 mm | 8.9° |
 | 180° | 0.23° | 2.1 mm | 21.8° |
 | 240° | 1.0° | 2.1 mm | 11.9° |
 | 300° | 0.12° | 2.3 mm | 11.8° |
-| 360° | 3.9° | 3.4 mm | 11.8° |
+| 360° (full ring) | *(fallback)* 11.8° | 2.3 mm | 11.8° |
 
 **Findings:**
 
@@ -143,13 +148,20 @@ dist-to-true-axis)` over the fragment's own vertices.
 3. The ~1.5–2 mm radial-RMS floor above 90° is largely the imperfect *reference* axis
    (its own circle-centre residual ≈ 1.9 mm), not method error — i.e. the method adds
    little above threshold.
-4. **Not yet bulletproof:** the 60° and 360° outliers are occasional bad band-arc
-   selections. Before field use `rim_arc` needs a robustness pass (better rim-band
-   isolation + reject-and-retry on poor arc fits).
+4. **Graceful degradation (robustness pass done):** the earlier 60°/360° outliers are
+   gone — the span + planarity gates now make `rim_arc` *refuse and fall back* on a
+   too-short or non-planar arc rather than emit a bad axis. So every fragment either gets
+   a sub-degree axis or is explicitly flagged for the manual route; it never silently
+   produces a wrong profile. Circle-centre refinement seeded by the rim normal was tried
+   and **rejected** — it tilts on partial wedges and made things worse.
 
 (The rim-diameter metric was dropped: this vessel's flared mouth makes "rim radius"
 genuinely ambiguous, which confounded it. Axis-angle and radial-RMS are the trustworthy
 measures.)
+
+**Still to validate:** these numbers are from wedges cropped off a *complete* vessel,
+which have cleaner edges than real broken sherds. The next test is a genuinely broken rim
+sherd (see below).
 
 ## Bottom line
 
