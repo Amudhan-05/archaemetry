@@ -1,0 +1,30 @@
+# Raw and processed images — large binaries, keep out of git history.
+# Archive these separately (external drive / Zenodo) per the archiving policy in the README.
+**/raw_images/*
+!**/raw_images/.gitkeep
+**/processed_images/*
+!**/processed_images/.gitkeep
+
+# Photogrammetry project files and dense outputs — large, regenerable from raw images.
+**/realitycapture_project/*
+!**/realitycapture_project/.gitkeep
+**/meshroom_project/*
+!**/meshroom_project/.gitkeep
+
+# Meshes — large binaries. Keep OBJ/texture outputs out of git; archive to Zenodo/Sketchfab instead.
+**/meshlab/*.obj
+**/meshlab/*.mtl
+**/meshlab/*.png
+**/meshlab/*.jpg
+!**/meshlab/.gitkeep
+
+# GigaMesh / Inkscape outputs are small vector files (SVG) — keep those, ignore any large exports.
+**/gigamesh/*.ply
+**/output/*.png
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

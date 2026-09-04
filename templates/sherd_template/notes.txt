@@ -1,0 +1,42 @@
+Sherd ID:
+Date/session:
+Operator:
+
+--- Grey card check (shoot before placing sherd) ---
+Reference RGB (from reference/grey-card-reference.jpg or notes below):
+  R:   G:   B:
+Measured RGB this session:
+  R:   G:   B:
+Dimmer adjustment made (Y/N):
+
+--- Camera settings ---
+ISO:
+Zoom (fixed, do not change mid-session):
+White balance mode (Daylight/Cloudy — never Auto):
+Shutter release method (2s timer / IR remote):
+
+--- ArUco marker calliper measurements ---
+Marker pair | Distance (mm, 0.01mm calliper)
+            |
+            |
+            |
+
+--- Capture record ---
+Ring    | Elevation | Increment | Shots taken | Notes
+Low     | ~15-20deg | 10deg     |             |
+Mid     | ~45deg    | 10deg     |             |
+High    | ~70deg    | 10deg     |             |
+Overhead| ~90deg    | 1-3 shots |             |
+
+Underside session (Y/N), clay prop angle:
+
+--- Processing notes ---
+RAW cull count:
+ICC profile source (ColorChecker Passport shot):
+Photogrammetry tool used (RealityCapture/Meshroom/Metashape):
+Issues / re-shoots needed:
+
+--- Error/reproducibility protocol (fill in once sherd clears full pipeline) ---
+Session number (1/2/3):
+Thickness measurement points used:
+Calliper reference values at same points:
