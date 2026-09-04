@@ -72,10 +72,47 @@ readily automatable and already work here.
   sub-mm, use the **bookend** deployment: automate SfM + cleanup + publish, keep GigaMesh
   for the profile itself.
 
+## Result 4 — rim-arc axis: fixes direction, but diameter is the real limit
+
+The `rim_arc` axis method (`extract_profile.py --axis-method rim_arc`) isolates the
+horizontal circular arcs on the mesh border (rim + clean breaks) using height bands, and
+sets the axis from them — the digital rim-chart method.
+
+On the 70° rim wedge it **cut the axis *tilt* from ~7° (PCA) to ~1°** (arc fit residual
+0.001). But the profile RMS did **not** improve — because the limiting error on a small
+fragment is not axis *direction*, it is the **circle centre / diameter**, which a short
+arc under-determines:
+
+- A ~60° arc pins the axis *direction* (plane normal) well, but its *centre* — and hence
+  the vessel radius — is highly uncertain. Radius is measured from that centre, so the
+  profile inherits the diameter error.
+- When two bands are used and they sit close together (a short section), the line through
+  their two noisy centres becomes an unstable *direction* too.
+
+This matches archaeological reality: a tiny rim sherd gives an unreliable vessel diameter
+no matter how it is measured — you need a sufficient arc of the rim. It is a
+**data limitation, not an algorithm bug.**
+
+**Caveat on the numbers:** an angle sweep (60–360°) did not produce a clean
+accuracy-vs-arc curve, because the comparison harness (`compare_profiles.py`) aligns full
+and fragment by a depth-from-rim heuristic and re-fits both axes — that alone contributes
+several mm (a full 360° ring still shows ~5 mm). So absolute RMS from the current harness
+is not trustworthy below ~5 mm. A proper oracle should register the fragment into the
+known crop frame (the crop transform is known exactly) and measure axis-angle, axis-offset
+and radius error directly. That is the next validation task.
+
+## Deployment implication
+
+- **Complete vessels / large fragments with a long rim arc** → the automatable lane is
+  viable; axis and diameter are well-constrained.
+- **Small rim sherds (short arc)** → diameter is fundamentally uncertain from geometry
+  alone; keep the **bookend** deployment (GigaMesh for the profile, with its assisted /
+  manual axis + diameter setting), which is exactly why that capability exists. This is a
+  defensible, quantified argument for architecture E in the methods section.
+
 ## Next validation step
 
-Implement the **rim-arc axis method** (fit the rim's circular edge: axis = rim-plane
-normal, diameter = arc radius — the digital form of the archaeological rim chart), then
-re-run `tools/compare_profiles.py` on the same wedge. If sherd RMS drops toward sub-mm,
-the manual GigaMesh middle can be removed for plain rim sherds. If not, these numbers are
-the defensible argument for keeping it (architecture E) in the methods section.
+Build a ground-truth-registered oracle (use the known crop transform, not depth-from-rim
+alignment) and re-measure axis error + radius error vs arc length. That yields a clean
+"minimum rim arc for X mm" curve — a directly useful field guideline and a strong figure
+for the funding writeup.

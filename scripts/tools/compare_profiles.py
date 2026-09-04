@@ -10,18 +10,25 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 # extract_profile.py lives in the parent scripts/ directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from extract_profile import fit_axis, profile_from_axis
+from extract_profile import fit_axis, fit_axis_rim_arc, profile_from_axis
 
 full_path, sherd_path, out_png = sys.argv[1], sys.argv[2], sys.argv[3]
+# optional 4th arg: axis method for the sherd (pca | rim_arc), default pca
+sherd_method = sys.argv[4] if len(sys.argv) > 4 else "pca"
 
-def prof(path, bands=300):
-    V = np.asarray(o3d.io.read_triangle_mesh(path).vertices)
-    p0, d, resid = fit_axis(V)
+def prof(path, bands=300, method="pca"):
+    m = o3d.io.read_triangle_mesh(path)
+    V = np.asarray(m.vertices)
+    if method == "rim_arc":
+        p0, d, info = fit_axis_rim_arc(V, np.asarray(m.triangles))
+        resid = info.get("resid", info.get("arc_resid", float("nan")))
+    else:
+        p0, d, resid = fit_axis(V)
     hs, r_med, r_max, cover = profile_from_axis(V, p0, d, bands)
     return hs, r_med, cover, resid
 
-hf, rf, cf, resf = prof(full_path)
-hs, rs, cs, ress = prof(sherd_path)
+hf, rf, cf, resf = prof(full_path, method="pca")
+hs, rs, cs, ress = prof(sherd_path, method=sherd_method)
 
 # align by rim: depth measured downward from the top of each profile
 df = hf.max() - hf

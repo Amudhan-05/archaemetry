@@ -96,6 +96,118 @@ def fit_axis(V, n_bands=40, n_refine=4):
     return p0, d / np.linalg.norm(d), resid
 
 
+def find_border_loops(T, n_verts):
+    """Return a list of vertex-index arrays, one per connected border loop.
+    Border edges are those used by exactly one triangle."""
+    from collections import defaultdict
+    ecount = defaultdict(int)
+    for tri in T:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            ecount[(min(a, b), max(a, b))] += 1
+    border = [e for e, c in ecount.items() if c == 1]
+    if not border:
+        return []
+    # union-find over border vertices connected by border edges
+    parent = {}
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(a, b):
+        parent[find(a)] = find(b)
+    for a, b in border:
+        union(a, b)
+    groups = defaultdict(set)
+    for a, b in border:
+        groups[find(a)].add(a); groups[find(a)].add(b)
+    return [np.array(sorted(g)) for g in groups.values() if len(g) >= 8]
+
+
+def fit_planar_circle(P3):
+    """Fit a plane + circle to 3D points. Return (center3d, normal, radius,
+    norm_residual, arc_span_deg)."""
+    c = P3.mean(0)
+    _, _, Vt = np.linalg.svd(P3 - c)
+    normal = Vt[2]                       # smallest-variance dir = plane normal
+    e1, e2 = Vt[0], Vt[1]
+    P2 = np.column_stack([(P3 - c) @ e1, (P3 - c) @ e2])
+    ctr2, r, inl = robust_circle_fit(P2)
+    d = np.abs(np.sqrt((P2[:, 0] - ctr2[0])**2 + (P2[:, 1] - ctr2[1])**2) - r)
+    norm_resid = float(np.median(d) / (r + 1e-9))
+    ang = np.arctan2(P2[:, 1] - ctr2[1], P2[:, 0] - ctr2[0])
+    arc_span = float(np.degrees(ang.max() - ang.min()))
+    center3d = c + ctr2[0] * e1 + ctr2[1] * e2
+    return center3d, normal, r, norm_resid, arc_span
+
+
+def border_vertices(T):
+    """Indices of vertices on a border edge (edge used by exactly one triangle)."""
+    from collections import defaultdict
+    ec = defaultdict(int)
+    for tri in T:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            ec[(min(a, b), max(a, b))] += 1
+    bv = set()
+    for (a, b), c in ec.items():
+        if c == 1:
+            bv.add(a); bv.add(b)
+    return np.array(sorted(bv))
+
+
+def fit_axis_rim_arc(V, T, max_resid=0.08, band_frac=0.15):
+    """Axis from the horizontal circular arcs on the mesh border (the rim, and
+    any clean horizontal break). A rim sherd is topologically a disk, so its
+    border is one mixed loop; we isolate the horizontal arcs by taking the
+    border vertices in the top/bottom height bands (height along a PCA-seeded
+    axis) and robustly circle-fitting each. Axis = line through the arc centres
+    (>=2 arcs) or the rim plane normal (1 arc). Falls back to PCA otherwise.
+    Mirrors the archaeological rim-chart method."""
+    # PCA-seed axis direction (major extent = vertical for an upright fragment)
+    c = V.mean(0)
+    evals, evecs = np.linalg.eigh(np.cov((V - c).T))
+    d0 = evecs[:, np.argmax(evals)]
+
+    bidx = border_vertices(T)
+    if len(bidx) < 16:
+        p0, d, resid = fit_axis(V)
+        return p0, d, dict(method="pca_fallback", n_arcs=0, resid=resid)
+    B = V[bidx]
+    h = (B - c) @ d0
+    top = B[h >= np.quantile(h, 1 - band_frac)]
+    bot = B[h <= np.quantile(h, band_frac)]
+
+    arcs = []
+    for name, band in (("top", top), ("bottom", bot)):
+        if len(band) < 8:
+            continue
+        center, normal, r, nres, span = fit_planar_circle(band)
+        if r > 0 and nres < max_resid:
+            arcs.append(dict(name=name, center=center, normal=normal,
+                             r=float(r), nres=float(nres), span=float(span)))
+    arcs.sort(key=lambda a: a["nres"])
+
+    if len(arcs) == 0:
+        p0, d, resid = fit_axis(V)
+        return p0, d, dict(method="pca_fallback", n_arcs=0, resid=resid)
+    if len(arcs) >= 2:
+        centers = np.array([a["center"] for a in arcs])
+        cc = centers.mean(0)
+        d = (centers[0] - centers[-1])
+        d = d / np.linalg.norm(d)
+        info = dict(method="rim_arc_multi", n_arcs=len(arcs),
+                    rim_radius=round(arcs[0]["r"], 3),
+                    rim_arc_deg=round(arcs[0]["span"], 1),
+                    arc_resid=round(arcs[0]["nres"], 4))
+        return cc, d, info
+    a = arcs[0]                         # single clean arc: axis = plane normal
+    info = dict(method="rim_arc_single", n_arcs=1,
+                rim_radius=round(a["r"], 3), rim_arc_deg=round(a["span"], 1),
+                arc_resid=round(a["nres"], 4))
+    return a["center"], a["normal"] / np.linalg.norm(a["normal"]), info
+
+
 def profile_from_axis(V, p0, d, n_bands=300):
     e1, e2, d = basis_from_dir(d)
     Pw = V - p0
@@ -166,6 +278,8 @@ def main():
     ap.add_argument("inp")
     ap.add_argument("outdir")
     ap.add_argument("--bands", type=int, default=300)
+    ap.add_argument("--axis-method", choices=["pca", "rim_arc"], default="pca",
+                    help="pca: near-complete vessels; rim_arc: rim sherds (axis from border arcs)")
     ap.add_argument("--assume-mm-per-unit", type=float, default=1.0,
                     help="scale factor unit->mm (1.0 if mesh already in mm)")
     args = ap.parse_args()
@@ -173,11 +287,18 @@ def main():
 
     mesh = o3d.io.read_triangle_mesh(args.inp)
     V = np.asarray(mesh.vertices)
+    T = np.asarray(mesh.triangles)
     ext = V.max(0) - V.min(0)
     print(f"loaded {len(V):,} verts, bbox={ext.round(3)}")
 
-    p0, d, resid = fit_axis(V)
-    print(f"axis dir={d.round(3)}  circle-center residual={resid:.4g} units")
+    axis_info = {"method": "pca"}
+    if args.axis_method == "rim_arc":
+        p0, d, axis_info = fit_axis_rim_arc(V, T)
+        resid = axis_info.get("resid", float("nan"))
+        print(f"axis[rim_arc]: {axis_info}")
+    else:
+        p0, d, resid = fit_axis(V)
+    print(f"axis dir={d.round(3)}  residual={resid:.4g} units")
 
     hs, r_med, r_max, cover = profile_from_axis(V, p0, d, args.bands)
     mm = args.assume_mm_per_unit
@@ -193,6 +314,9 @@ def main():
 
     report = {
         "input": args.inp,
+        "axis_method": axis_info.get("method", args.axis_method),
+        "axis_info": {k: (round(v, 4) if isinstance(v, float) else v)
+                      for k, v in axis_info.items() if k != "method"},
         "axis_dir": [round(float(x), 4) for x in d],
         "axis_residual_units": round(float(resid), 5),
         "bbox_units": [round(float(x), 4) for x in ext],
