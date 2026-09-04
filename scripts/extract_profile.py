@@ -191,21 +191,18 @@ def fit_axis_rim_arc(V, T, max_resid=0.08, band_frac=0.15):
     if len(arcs) == 0:
         p0, d, resid = fit_axis(V)
         return p0, d, dict(method="pca_fallback", n_arcs=0, resid=resid)
-    if len(arcs) >= 2:
-        centers = np.array([a["center"] for a in arcs])
-        cc = centers.mean(0)
-        d = (centers[0] - centers[-1])
-        d = d / np.linalg.norm(d)
-        info = dict(method="rim_arc_multi", n_arcs=len(arcs),
-                    rim_radius=round(arcs[0]["r"], 3),
-                    rim_arc_deg=round(arcs[0]["span"], 1),
-                    arc_resid=round(arcs[0]["nres"], 4))
-        return cc, d, info
-    a = arcs[0]                         # single clean arc: axis = plane normal
-    info = dict(method="rim_arc_single", n_arcs=1,
-                rim_radius=round(a["r"], 3), rim_arc_deg=round(a["span"], 1),
-                arc_resid=round(a["nres"], 4))
-    return a["center"], a["normal"] / np.linalg.norm(a["normal"]), info
+
+    # Axis direction = the best-fit arc's PLANE NORMAL. A well-fit horizontal
+    # circle's normal is the vessel axis, and it is far more stable than a line
+    # through two band-centres (a single bad band-centre wrecks that line, even
+    # when the bands are well separated). Axis position = that arc's centre.
+    best = arcs[0]
+    d = best["normal"] / np.linalg.norm(best["normal"])
+    p0 = best["center"]
+    info = dict(method="rim_arc", n_arcs=len(arcs),
+                rim_radius=round(best["r"], 3), rim_arc_deg=round(best["span"], 1),
+                arc_resid=round(best["nres"], 4))
+    return p0, d, info
 
 
 def profile_from_axis(V, p0, d, n_bands=300):
