@@ -1,0 +1,31 @@
+# archaemetry — per-sherd pipeline configuration (the entire field-facing surface).
+# Most values have sane defaults; a field user typically edits only images_dir,
+# the scale block, and `ware`. Everything else is internal tuning.
+
+capture:
+  images_dir: ./raw_images
+  masking: auto            # auto | none  (auto = segment background out per-image, before SfM)
+  pose_priors: null        # path to Orbiter/rig extrinsics, if available -> seeds COLMAP
+
+scale:                     # the metric anchor — REQUIRED for mm accuracy
+  marker_pair: [id4, id7]  # two ArUco markers...
+  distance_mm: 62.40       # ...and the calliper distance between them (data/reference/marker-measurements.csv)
+
+cleanup:                   # -> clean_mesh.py
+  keep_largest_only: true  # drop the background/turntable + noise islands (deterministic)
+  min_faces: null          # alternative: drop components smaller than N faces (null = keep largest only)
+  close_holes_max_mm: 3.0  # 0 = never fabricate geometry
+
+profile:                   # -> extract_profile.py
+  axis: auto               # auto | [x,y,z] manual hint
+  axis_method: pca         # pca (near-complete vessels) | rim_arc (rim sherds) | inner_surface (body sherds)
+  bands: 300               # number of height bands sampled along the axis
+  thickness_interval_mm: 5 # where to sample wall thickness (reporting)
+
+publish:                   # -> Inkscape CLI (Stage 4, not yet scripted)
+  line_weight_mm: 0.3
+  scale_bar: true
+  hatching: true
+  template: cva            # draughting convention
+
+ware: plain                # plain -> automatable lane | decorated -> route to GigaMesh station (rollout/MSII)
